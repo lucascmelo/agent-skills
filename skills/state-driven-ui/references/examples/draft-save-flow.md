@@ -1,222 +1,109 @@
-# Draft Save Flow Example
+# Example: draft save flow (server-backed row)
 
-## Problem statement
-User needs to edit existing item with save/discard semantics, including optimistic updates and navigation blocking when unsaved changes exist.
+## Problem
+User edits a server-backed row.
+User can save or discard.
+Save is async and can fail.
+UI must remain correct under re-rendering and rapid actions.
 
 ## State model
+Ownership:
+- Server row: React Query cache
+- Workflow state: reducer state
+- Draft overlay: reducer state
 
-### Server cache (React Query)
-```typescript
-interface ItemData {
-  id: string
-  title: string
-  description: string
-  updatedAt: Date
-}
+State shape (minimal):
+- phase: idle | editing | saving | error
+- activeId: RowId | null
+- draftById: Record<RowId, Partial<Row>>
+- latestRequestId: string | null
+- lastError: string | null
 
-// Owner: React Query cache
-const useItemQuery = (id: string) => 
-  useQuery(['item', id], () => fetchItem(id))
-```
+## Events
 
-### Client workflow state
-```typescript
-enum DraftPhase {
-  VIEWING = 'viewing',
-  EDITING = 'editing',
-  SAVING = 'saving',
-  SAVED = 'saved',
-  ERROR = 'error'
-}
+User intent:
+- START_EDIT(id)
+- CHANGE_FIELD(id, patch)
+- DISCARD_DRAFT(id)
+- COMMIT_REQUESTED(id)
+- RETRY_COMMIT(id)
 
-interface DraftOverlay {
-  [itemId: string]: {
-    data: Partial<ItemData>
-    isDirty: boolean
-    lastModified: number
-  }
-}
+System outcomes:
+- COMMIT_STARTED(requestId, id)
+- COMMIT_SUCCEEDED(requestId, id, payload)
+- COMMIT_FAILED(requestId, id, error)
 
-interface WorkflowState {
-  phase: DraftPhase
-  activeItemId?: string
-  drafts: DraftOverlay
-  error?: string
-  lastSaved?: Date
-}
+Optional:
+- COMMIT_SETTLED(requestId, id)
 
-// Owner: Feature controller (useDraftWorkflow hook)
-```
+## Transition map (reducer rules)
 
-### Ephemeral UI state
-```typescript
-interface UIState {
-  focusedField?: string
-  isConfirmDialogOpen: boolean
-  pendingNavigation?: string
-}
+Rules:
+- START_EDIT sets activeId and phase editing
+- CHANGE_FIELD updates draftById[id] and keeps phase editing
+- DISCARD_DRAFT clears draftById[id], clears error, sets phase idle if no active edits
+- COMMIT_REQUESTED sets phase saving only after COMMIT_STARTED
+- COMMIT_STARTED sets latestRequestId and phase saving
+- COMMIT_SUCCEEDED clears draftById[id], clears error, sets phase idle
+- COMMIT_FAILED sets lastError and phase error, keeps draftById[id]
+- Ignore stale outcomes:
+  - If event.requestId != state.latestRequestId, return state unchanged
 
-// Owner: Individual components
-```
+Invalid transitions (reject design if needed):
+- CHANGE_FIELD when phase is saving
+- COMMIT_REQUESTED when phase is idle and no draft exists
 
-## Transition table
+## Side effects plan (React Query mutation)
+Trigger:
+- On COMMIT_REQUESTED(id), run mutation in effects layer
 
-| Current State | Trigger | Next State | Action |
-|---------------|---------|------------|--------|
-| VIEWING | startEditing(itemId) | EDITING | Create draft overlay |
-| EDITING | updateField(field, value) | EDITING | Update draft overlay |
-| EDITING | saveDraft() | SAVING | Trigger save mutation |
-| EDITING | discardDraft() | VIEWING | Remove draft overlay |
-| EDITING | attemptNavigation() | EDITING | Show confirm dialog |
-| SAVING | onSuccess | SAVED | Clear draft, update cache |
-| SAVING | onError | ERROR | Show error, keep draft |
-| ERROR | retrySave() | SAVING | Retry save mutation |
-| ERROR | discardDraft() | VIEWING | Remove draft overlay |
-| SAVED | auto | VIEWING | Clear active item |
+Mutation:
+- updateRowMutation.mutate({ id, patch })
 
-## Effects plan (React Query)
+Callback to events:
+- onMutate
+  - create requestId
+  - dispatch COMMIT_STARTED(requestId, id)
+  - return { requestId } for callback access
+- onSuccess(data, variables, context)
+  - dispatch COMMIT_SUCCEEDED(context.requestId, variables.id, data)
+  - update or invalidate queries as needed
+- onError(error, variables, context)
+  - dispatch COMMIT_FAILED(context.requestId, variables.id, error)
+- onSettled
+  - optional dispatch COMMIT_SETTLED(context.requestId, variables.id)
 
-### Save mutation
-```typescript
-const useSaveMutation = (dispatch: Dispatch) => {
-  return useMutation({
-    mutationFn: ({ itemId, data }: { itemId: string, data: ItemData }) => 
-      saveItem(itemId, data),
-    
-    onMutate: async ({ itemId, data }) => {
-      // Cancel in-flight queries
-      await queryClient.cancelQueries(['item', itemId])
-      
-      // Optimistic update
-      const previousData = queryClient.getQueryData<ItemData>(['item', itemId])
-      queryClient.setQueryData(['item', itemId], data)
-      
-      // Transition to saving
-      dispatch({ type: 'STARTED_SAVING' })
-      
-      return { previousData, itemId }
-    },
-    
-    onSuccess: (result, variables, context) => {
-      dispatch({ type: 'SAVED_DRAFT', payload: { timestamp: new Date() } })
-    },
-    
-    onError: (error, variables, context) => {
-      // Rollback optimistic update
-      if (context?.previousData) {
-        queryClient.setQueryData(['item', context.itemId], context.previousData)
-      }
-      
-      dispatch({ 
-        type: 'ENCOUNTERED_ERROR', 
-        payload: { error: error.message } 
-      })
-    },
-    
-    onSettled: (result, error, variables) => {
-      // Invalidate to ensure fresh data
-      queryClient.invalidateQueries(['item', variables.itemId])
-    }
-  })
-}
-```
+Stale response handling:
+- Store latestRequestId in workflow state on COMMIT_STARTED.
+- In reducer, ignore COMMIT_SUCCEEDED and COMMIT_FAILED if requestId is not latest.
 
 ## Selectors
-
-```typescript
-const selectors = {
-  // Merged data for rendering
-  currentItemData: (state: WorkflowState, serverData?: ItemData) => {
-    if (!state.activeItemId || !serverData) return undefined
-    
-    const draft = state.drafts[state.activeItemId]
-    return draft ? { ...serverData, ...draft.data } : serverData
-  },
-  
-  // Is current item dirty?
-  isDirty: (state: WorkflowState) => {
-    if (!state.activeItemId) return false
-    return state.drafts[state.activeItemId]?.isDirty ?? false
-  },
-  
-  // Can navigate away?
-  canNavigate: (state: WorkflowState) => {
-    return state.phase === DraftPhase.VIEWING || state.phase === DraftPhase.SAVED
-  },
-  
-  // Error message for display
-  errorMessage: (state: WorkflowState) => {
-    return state.phase === DraftPhase.ERROR ? state.error : undefined
-  }
-}
-```
+- selectMergedRow(id)
+  - merge(serverRow(id), draftById[id])
+- selectIsDirty(id)
+  - draftById[id] exists and has keys
+- selectCanSave
+  - phase is editing and activeId is not null and selectIsDirty(activeId)
+- selectErrorMessage
+  - lastError when phase is error
 
 ## Component boundaries
-
-### ItemViewComponent
-- **Owns**: Ephemeral UI state (focus, dialog state)
-- **Receives**: Current item data, workflow state, actions
-- **Renders**: Form fields, save/discard buttons
-- **Cannot**: Directly mutate workflow state
-
-### NavigationBlocker
-- **Owns**: Navigation confirmation logic
-- **Receives**: Can navigate flag, pending navigation
-- **Renders**: Confirmation dialog
-- **Cannot**: Access draft data directly
-
-### WorkflowController (useDraftWorkflow)
-- **Owns**: Complete workflow state, draft overlays
-- **Receives**: Server data via React Query
-- **Exposes**: Actions, selectors, phase
-- **Cannot**: Render UI directly
-
-## Implementation notes
-
-### Draft overlay management
-```typescript
-// Update draft overlay
-const updateDraft = (itemId: string, updates: Partial<ItemData>) => {
-  dispatch({
-    type: 'UPDATED_DRAFT',
-    payload: {
-      itemId,
-      data: updates,
-      isDirty: true,
-      lastModified: Date.now()
-    }
-  })
-}
-
-// Discard draft
-const discardDraft = (itemId: string) => {
-  dispatch({
-    type: 'DISCARDED_DRAFT',
-    payload: { itemId }
-  })
-}
-```
-
-### Navigation blocking
-```typescript
-// Block navigation when dirty
-useBlocker(
-  ({ currentLocation, nextLocation }) => {
-    return !selectors.canNavigate(workflowState)
-  },
-  when(workflowState.activeItemId && selectors.isDirty(workflowState))
-)
-```
-
-### Auto-save considerations
-- Implement debounced auto-save in addition to manual save
-- Use different mutation keys for auto vs manual saves
-- Show clear UI feedback for auto-save status
+- View component
+  - render mergedRow, phase, canSave, error
+  - emit intents: onStartEdit, onChangeField, onSave, onDiscard, onRetry
+- Container component
+  - read selectors
+  - dispatch user intent events
+  - call effects layer for COMMIT_REQUESTED only
+- Effects/controller layer
+  - owns mutation setup and callbacks
+  - emits system outcome events only
+  - does not render UI
 
 ## Edge cases
-
-1. **Concurrent edits**: Abort previous save mutations when new ones start
-2. **Network failures**: Keep draft intact, show retry option
-3. **Server validation errors**: Display field-specific errors in draft
-4. **Browser refresh**: Persist draft to sessionStorage for recovery
-5. **Multiple items**: Support multiple simultaneous drafts with different IDs
+- Rapid double save
+  - requestId ensures only latest outcome applies
+- Server row changes during edit
+  - merged selector overlays draft on top of latest server row
+- Save fails
+  - keep draft overlay, expose error state, allow retry

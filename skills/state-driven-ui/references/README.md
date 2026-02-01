@@ -1,36 +1,17 @@
-# State-Driven UI References
+# References
 
-This directory contains implementation examples, patterns, and guidance for the state-driven-ui skill.
+Use references only when needed.
 
-## Structure
+Rule sources:
+- ../rules/
 
-- [`patterns.md`](patterns.md) - Implementation patterns
-- [`examples/`](examples/) - Flow examples
-  - [`draft-save-flow.md`](examples/draft-save-flow.md) - Draft editing with save/discard
-  - [`navigation-blocking-flow.md`](examples/navigation-blocking-flow.md) - Navigation with confirmation
-  - [`async-validation-flow.md`](examples/async-validation-flow.md) - Async validation with debouncing
-- [`checklists/`](checklists/) - Implementation validation
-  - [`implementation-checklist.md`](checklists/implementation-checklist.md) - Pre-implementation and pre-merge checklist
+Patterns:
+- patterns.md
 
-## Usage
+Examples:
+- examples/draft-save-flow.md
+- examples/navigation-blocking-flow.md
+- examples/async-validation-flow.md
 
-References provide progressive disclosure - start with main skill documentation in [`../SKILL.md`](../SKILL.md), then review specific patterns and examples.
-
-## Pattern Categories
-
-### State Modeling
-- Draft overlays keyed by stable IDs
-- Phase enums vs state machines
-- Transition naming conventions
-
-### Effects Integration
-- React Query mutation callbacks
-- Optimistic updates and rollback
-- Cancellation and race condition handling
-
-### Implementation Patterns
-- Component boundary definition
-- Selector design
-- URL state synchronization
-
-See [`patterns.md`](patterns.md) for detailed explanations.
+Checklist:
+- checklists/implementation-checklist.md

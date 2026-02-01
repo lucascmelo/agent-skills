@@ -1,130 +1,85 @@
 ---
 name: state-driven-ui
-description: Creation skill for building deterministic React UIs using explicit state models and React Query effects
+description: Create React UI as a projection of explicit state transitions using reducer + events. Isolate side effects in React Query mutation callbacks. Keep components render-only and intent-only.
 license: MIT
 metadata:
   author: Lucas Cavalcanti
   version: 0.1.0
 ---
 
-# State-Driven UI
+# State-driven UI
 
-## When to use
-- Multi-step forms or workflows with clear phases
-- Draft/edit flows with save/discard semantics
-- Features requiring navigation blocking or confirmation
-- Async validation with optimistic UI updates
-- Complex user interactions with multiple outcomes
+## Scope
+Use this skill to design and implement UI behavior as a pure projection of state.
+Model behavior with reducer + events.
+Isolate side effects in React Query mutation callbacks.
+Keep components render-only and intent-only.
 
-## When not to use
-- Simple display components without state transitions
-- Purely presentational UI without side effects
-- One-off interactions without workflow complexity
+## Use this skill when
+- The feature has phases (idle, editing, saving, confirming, error).
+- The feature has async behavior (save, validate, retry, generate).
+- The feature has cross-component or cross-route behavior.
+- The current design relies on boolean soup or lifecycle timing.
+- Correctness must survive re-rendering and concurrency.
 
-## Non-negotiable invariants
-1. **State-first reasoning**: Define state model before any component code
-2. **Single source of truth**: Server cache via React Query, no client mirroring
-3. **Explicit transitions**: All state changes must go through defined transitions
-4. **Render-only components**: Components cannot trigger state changes directly
-5. **Deterministic rendering**: Same state = same UI, no lifecycle-driven behavior
+## Do not use this skill when
+- The change is purely presentational.
+- The behavior is trivial and isolated to local UI state.
+- There is no workflow and no side effects.
 
-## State taxonomy and ownership rules
+## Required approach
+Follow this order. Do not skip steps.
+Do not write component code before steps 1 to 4 are complete.
 
-### Server cache (React Query)
-- **Owner**: React Query cache
-- **Content**: Authoritative data from server
-- **Rules**: Never mutate directly, use mutations only
-- **Example**: `useQuery(['user', id], fetchUser)`
+1. Define the state model and ownership boundaries.
+2. Define events (user intent and system outcomes).
+3. Define transitions as a pure reducer (event -> next state).
+4. Define side effects and bind them to events.
+   - Use React Query mutation callbacks to emit outcome events.
+5. Define selectors (derived values).
+6. Implement components as projection + intent emission only.
 
-### Client workflow state
-- **Owner**: Feature controller (custom hook)
-- **Content**: Draft data, phase information, validation state
-- **Rules**: Immutable updates only, transition via actions
-- **Example**: `{ phase: 'editing', draft: { ... }, validation: { ... } }`
+## Output expectations
+When using this skill, output in this structure:
 
-### URL state (schema validated)
-- **Owner**: Router + validation layer
-- **Content**: Serializable view of key workflow state
-- **Rules**: Validate at boundary, keep minimal
-- **Example**: `?phase=editing&id=123`
+1. State model
+2. Events
+3. Transition map (reducer rules)
+4. Side effects plan (React Query mutations and callbacks)
+5. Selectors
+6. Component boundaries
+7. Implementation steps
+8. Design rationale (why, what, why not, skipped, trade-offs)
 
-### Ephemeral UI state
-- **Owner**: Individual components
-- **Content**: Transient UI (focus, hover, dropdown open)
-- **Rules**: Local to component, no cross-component effects
-- **Example**: `{ isDropdownOpen: false, focusedField: null }`
+## Canonical documents
+- Full compiled guidance for agents: AGENTS.md
+- Source rules (modular): rules/
+- Patterns and examples: references/
 
-## Mandatory reasoning order
-1. **Identify all possible states** the user can be in
-2. **Define state model** with clear ownership boundaries
-3. **Map state transitions** with triggers and guards
-4. **Plan effects** using React Query mutation callbacks
-5. **Design selectors** for derived state
-6. **Define component boundaries** based on state ownership
-7. **Implement components** as pure render functions
+## Rule catalog
+Read the relevant rule files from rules/ as needed.
+Treat AGENTS.md as canonical when uncertain.
 
-## Required design artifacts
-- **State model**: TypeScript interfaces with ownership annotations
-- **Transition table**: All possible state changes with triggers
-- **Effects plan**: React Query mutations with callback mappings
-- **Selectors**: Pure functions for derived state
-- **Component boundaries**: Clear separation by state ownership
+### Construction and modeling
+- rules/flow-ui-projection.md
+- rules/flow-intents-only.md
+- rules/reducer-events-drive-state.md
+- rules/reducer-single-phase.md
+- rules/fsm-no-boolean-soup.md
 
-## Effects model (React Query)
+### Effects and async (React Query)
+- rules/effects-no-effects-in-components.md
+- rules/query-mutation-callbacks.md
+- rules/query-stale-response-guard.md
 
-### Mutation placement
-- **Location**: Feature controller layer, not components
-- **Pattern**: `useMutation` in custom hook, exposed as actions
-- **Example**: `const { saveDraft, discardDraft } = useWorkflowActions()`
+### Cross-cutting behavior
+- rules/routing-explicit-decision-state.md
+- rules/url-validated-boundary.md
 
-### Callback dispatching
-- **onMutate**: Optimistic updates + transition to pending state
-- **onSuccess**: Transition to success state, invalidate queries
-- **onError**: Transition to error state, rollback optimistic updates
-- **onSettled**: Cleanup, reset loading states
+### Correctness and maintainability
+- rules/derive-derived-state-as-selectors.md
+- rules/identity-stable-ids-and-keys.md
+- rules/determinism-no-lifecycle-dependence.md
 
-### Cancellation handling
-- Abort stale mutations on new transitions
-- Use mutation keys for deduplication
-- Handle race conditions in callback order
-
-## Forbidden patterns
-- Direct state mutation in components
-- Server cache mirroring in client stores
-- Boolean state without explicit phase modeling
-- Lifecycle-driven side effects in components
-- Implicit state dependencies between components
-- Mixed concerns in single state objects
-
-## Rejection conditions
-Stop and redesign if you encounter:
-- Multiple components sharing mutable state directly
-- State transitions that are not explicitly defined
-- Components that trigger their own state changes
-- Server data duplicated in client state
-- Validation logic scattered across components
-- Navigation blocking without explicit decision state
-
-## Required output format
-
-When using this skill, structure your response as:
-
-```markdown
-## State Model
-[TypeScript interfaces with ownership]
-
-## Transition Table
-[All state changes with triggers and guards]
-
-## Effects Plan
-[React Query mutations with callback mappings]
-
-## Selectors
-[Derived state functions]
-
-## Component Boundaries
-[State ownership mapping]
-
-## Implementation Notes
-[Critical implementation details]
-```
+### Documentation and reasoning
+- rules/docs-rationale-at-boundaries.md

@@ -1,349 +1,94 @@
-# Navigation Blocking Flow Example
+# Example: navigation blocking (explicit decision phase)
 
-## Problem statement
-User is in multi-step form or editing flow and attempts to navigate away. System must block navigation and explicitly ask for confirmation, with clear decision states.
+## Problem
+User has unsaved draft changes.
+User attempts to navigate away.
+System must require an explicit decision.
+Do not rely on component lifecycle to block navigation.
 
 ## State model
+Ownership:
+- Server data: React Query cache
+- Workflow state: reducer state
 
-### Server cache (React Query)
-```typescript
-interface FormData {
-  id: string
-  step: number
-  data: Record<string, any>
-  isComplete: boolean
-}
+State shape (minimal):
+- phase: idle | editing | confirm_navigation
+- draftById: Record<RowId, Partial<Row>>
+- pendingNavigation: { to: string } | null
 
-// Owner: React Query cache
-const useFormQuery = (id: string) => 
-  useQuery(['form', id], () => fetchForm(id))
-```
+## Events
 
-### Client workflow state
-```typescript
-enum NavigationPhase {
-  NAVIGATING = 'navigating',
-  BLOCKED = 'blocked',
-  CONFIRMING = 'confirming',
-  ALLOWED = 'allowed'
-}
+User intent:
+- START_EDIT(id)
+- CHANGE_FIELD(id, patch)
+- NAVIGATION_REQUESTED(to)
+- NAVIGATION_CONFIRMED
+- NAVIGATION_CANCELLED
+- DISCARD_ALL_DRAFTS
 
-enum WorkflowPhase {
-  FILLING = 'filling',
-  DIRTY = 'dirty',
-  SAVING = 'saving',
-  SAVED = 'saved'
-}
+System outcomes:
+- NAVIGATION_PERFORMED(to) (optional)
 
-interface NavigationState {
-  phase: NavigationPhase
-  pendingNavigation?: {
-    to: string
-    trigger: 'browser' | 'link' | 'programmatic'
-  }
-  decision?: 'stay' | 'leave' | 'save_and_leave'
-}
+## Transition map (reducer rules)
 
-interface WorkflowState {
-  phase: WorkflowPhase
-  currentStep: number
-  totalSteps: number
-  hasUnsavedChanges: boolean
-  navigation: NavigationState
-}
+Rules:
+- START_EDIT -> phase editing
+- CHANGE_FIELD -> keep phase editing, update draft
+- NAVIGATION_REQUESTED(to)
+  - if no drafts, do not enter confirm_navigation
+  - if drafts exist, set pendingNavigation and phase confirm_navigation
+- NAVIGATION_CANCELLED
+  - clear pendingNavigation, return to editing
+- NAVIGATION_CONFIRMED
+  - clear drafts, clear pendingNavigation, set phase idle
+  - navigation effect must run outside view components
 
-// Owner: Feature controller (useNavigationWorkflow hook)
-```
+Invalid transitions:
+- NAVIGATION_CONFIRMED from editing
+- NAVIGATION_REQUESTED from confirm_navigation without cancelling first
 
-### Ephemeral UI state
-```typescript
-interface DialogState {
-  isOpen: boolean
-  title: string
-  message: string
-  options: Array<{ label: string; action: string; variant: 'primary' | 'secondary' }>
-}
+## Side effects plan (navigation effect)
+Trigger:
+- On NAVIGATION_CONFIRMED, perform navigation to pendingNavigation.to
 
-// Owner: ConfirmationDialog component
-```
+Placement rules:
+- Perform navigation in a boundary layer, not in a view component.
+- The boundary layer can be:
+  - controller hook used by a container
+  - router middleware or guard layer
 
-## Transition table
+Effect execution:
+- Read pendingNavigation from state at the time of confirmation.
+- Navigate once.
+- Optionally dispatch NAVIGATION_PERFORMED(to) for logging or cleanup.
 
-### Navigation transitions
-| Current State | Trigger | Next State | Action |
-|---------------|---------|------------|--------|
-| NAVIGATING | hasUnsavedChanges | BLOCKED | Store pending navigation |
-| BLOCKED | showConfirmation() | CONFIRMING | Show dialog |
-| CONFIRMING | userChooses('stay') | ALLOWED | Clear pending navigation |
-| CONFIRMING | userChooses('leave') | ALLOWED | Proceed with navigation |
-| CONFIRMING | userChooses('save_and_leave') | SAVING | Trigger save then navigate |
-| ALLOWED | auto | NAVIGATING | Reset navigation state |
-
-### Workflow transitions
-| Current State | Trigger | Next State | Action |
-|---------------|---------|------------|--------|
-| FILLING | fieldChanged() | DIRTY | Set unsaved flag |
-| DIRTY | fieldChanged() | DIRTY | Update draft data |
-| DIRTY | saveForm() | SAVING | Trigger save mutation |
-| SAVING | onSuccess | SAVED | Clear unsaved flag |
-| SAVING | onError | DIRTY | Show error, keep flag |
-
-## Effects plan (React Query)
-
-### Save and navigate mutation
-```typescript
-const useSaveAndNavigateMutation = (dispatch: Dispatch) => {
-  return useMutation({
-    mutationFn: ({ formId, data, navigateTo }: { 
-      formId: string
-      data: FormData
-      navigateTo: string 
-    }) => saveForm(formId, data),
-    
-    onMutate: async ({ formId, data }) => {
-      // Cancel in-flight queries
-      await queryClient.cancelQueries(['form', formId])
-      
-      // Optimistic update
-      const previousData = queryClient.getQueryData(['form', formId])
-      queryClient.setQueryData(['form', formId], data)
-      
-      // Transition to saving
-      dispatch({ type: 'STARTED_SAVE_AND_NAVIGATE' })
-      
-      return { previousData }
-    },
-    
-    onSuccess: (_, variables) => {
-      dispatch({ 
-        type: 'SAVED_AND_NAVIGATING', 
-        payload: { navigateTo: variables.navigateTo } 
-      })
-      
-      // Actually navigate after successful save
-      router.push(variables.navigateTo)
-    },
-    
-    onError: (error, variables, context) => {
-      // Rollback optimistic update
-      if (context?.previousData) {
-        queryClient.setQueryData(['form', variables.formId], context.previousData)
-      }
-      
-      dispatch({ 
-        type: 'SAVE_AND_NAVIGATE_FAILED', 
-        payload: { error: error.message } 
-      })
-    },
-    
-    onSettled: (result, error, variables) => {
-      queryClient.invalidateQueries(['form', variables.formId])
-    }
-  })
-}
-```
+Rules:
+- The decision is stateful (confirm_navigation).
+- Navigation happens only after NAVIGATION_CONFIRMED.
+- Components do not call router navigation directly.
 
 ## Selectors
-
-```typescript
-const selectors = {
-  // Should navigation be blocked?
-  shouldBlockNavigation: (state: WorkflowState) => {
-    return state.hasUnsavedChanges && 
-           state.navigation.phase === NavigationPhase.BLOCKED
-  },
-  
-  // Current navigation decision context
-  navigationContext: (state: WorkflowState) => {
-    const { phase, pendingNavigation } = state.navigation
-    
-    if (phase !== NavigationPhase.CONFIRMING || !pendingNavigation) {
-      return null
-    }
-    
-    return {
-      destination: pendingNavigation.to,
-      trigger: pendingNavigation.trigger,
-      hasUnsavedChanges: state.hasUnsavedChanges,
-      canSave: state.phase !== WorkflowPhase.SAVING
-    }
-  },
-  
-  // Dialog configuration
-  dialogConfig: (state: WorkflowState) => {
-    const context = selectors.navigationContext(state)
-    
-    if (!context) return null
-    
-    const baseOptions = [
-      { label: 'Stay', action: 'stay', variant: 'secondary' as const }
-    ]
-    
-    if (context.canSave) {
-      baseOptions.push({ 
-        label: 'Save and Leave', 
-        action: 'save_and_leave', 
-        variant: 'primary' as const 
-      })
-    }
-    
-    baseOptions.push({ 
-      label: 'Leave without Saving', 
-      action: 'leave', 
-      variant: 'secondary' as const 
-    })
-    
-    return {
-      isOpen: true,
-      title: 'Unsaved Changes',
-      message: `You have unsaved changes. What would you like to do before navigating to ${context.destination}?`,
-      options: baseOptions
-    }
-  }
-}
-```
+- selectHasDrafts
+  - draftById has any keys
+- selectShouldConfirmNavigation
+  - phase is editing and selectHasDrafts is true
+- selectPendingDestination
+  - pendingNavigation?.to
 
 ## Component boundaries
-
-### NavigationBlocker
-- **Owns**: Navigation blocking logic, dialog state
-- **Receives**: Navigation context, dialog config
-- **Renders**: Confirmation dialog
-- **Cannot**: Access form data directly
-
-### FormComponent
-- **Owns**: Form field state, validation
-- **Receives**: Form data, save actions
-- **Renders**: Form fields, step navigation
-- **Cannot**: Control navigation directly
-
-### NavigationController (useNavigationWorkflow)
-- **Owns**: Complete navigation and workflow state
-- **Receives**: Router events, form data changes
-- **Exposes**: Navigation actions, selectors
-- **Cannot**: Render UI directly
-
-## Implementation notes
-
-### Router integration
-```typescript
-// Block navigation using React Router's useBlocker
-const NavigationBlocker = () => {
-  const { shouldBlockNavigation, pendingNavigation } = useNavigationWorkflow()
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) => {
-      return shouldBlockNavigation && 
-             currentLocation.pathname !== nextLocation.pathname
-    }
-  )
-  
-  useEffect(() => {
-    if (blocker.state === 'blocked') {
-      dispatch({
-        type: 'NAVIGATION_BLOCKED',
-        payload: {
-          to: blocker.location.pathname,
-          trigger: 'browser'
-        }
-      })
-    }
-  }, [blocker.state, blocker.location])
-  
-  const handleDecision = (decision: string) => {
-    switch (decision) {
-      case 'stay':
-        dispatch({ type: 'USER_DECIDED_TO_STAY' })
-        blocker.reset()
-        break
-      case 'leave':
-        dispatch({ type: 'USER_DECIDED_TO_LEAVE' })
-        blocker.proceed()
-        break
-      case 'save_and_leave':
-        dispatch({ 
-          type: 'USER_DECIDED_TO_SAVE_AND_LEAVE',
-          payload: { navigateTo: blocker.location.pathname }
-        })
-        break
-    }
-  }
-  
-  const dialogConfig = useDialogConfig()
-  
-  return (
-    <ConfirmationDialog
-      config={dialogConfig}
-      onDecision={handleDecision}
-    />
-  )
-}
-```
-
-### Link click handling
-```typescript
-// Intercept link clicks within the app
-const LinkInterceptor = ({ children }) => {
-  const dispatch = useNavigationDispatch()
-  
-  const handleClick = (event: MouseEvent) => {
-    const target = event.target as HTMLElement
-    const link = target.closest('a[href]')
-    
-    if (link && link.getAttribute('data-external') !== 'true') {
-      event.preventDefault()
-      const href = link.getAttribute('href')
-      
-      dispatch({
-        type: 'ATTEMPTED_NAVIGATION',
-        payload: {
-          to: href,
-          trigger: 'link'
-        }
-      })
-    }
-  }
-  
-  useEffect(() => {
-    document.addEventListener('click', handleClick)
-    return () => document.removeEventListener('click', handleClick)
-  }, [])
-  
-  return children
-}
-```
-
-### Programmatic navigation
-```typescript
-// Wrapper for programmatic navigation
-const useSafeNavigate = () => {
-  const dispatch = useNavigationDispatch()
-  const navigate = useNavigate()
-  
-  return useCallback((to: string) => {
-    dispatch({
-      type: 'ATTEMPTED_NAVIGATION',
-      payload: {
-        to,
-        trigger: 'programmatic'
-      }
-    })
-  }, [dispatch])
-}
-```
+- View component
+  - render confirmation dialog when phase confirm_navigation
+  - emit intents: onConfirm, onCancel
+- Container component
+  - dispatch NAVIGATION_REQUESTED when user attempts navigation
+  - dispatch NAVIGATION_CONFIRMED or NAVIGATION_CANCELLED from dialog intents
+- Boundary navigation effect
+  - performs the actual navigation after confirmation
 
 ## Edge cases
-
-1. **Browser refresh/back button**: Handle via beforeunload event
-2. **Multiple rapid navigation attempts**: Queue or cancel previous attempts
-3. **Save failure during navigation**: Show error, keep navigation blocked
-4. **External links**: Allow without blocking (mark with data-external)
-5. **Tab closing**: Use beforeunload event for unsaved changes warning
-6. **Mobile app back button**: Integrate with platform-specific navigation APIs
-
-## Testing considerations
-
-1. **Navigation blocking**: Test that unsaved changes trigger blocking
-2. **Dialog decisions**: Test each decision path (stay, leave, save_and_leave)
-3. **Save failures**: Test error handling during save and navigate
-4. **Multiple triggers**: Test browser back, link clicks, programmatic navigation
-5. **Edge cases**: Test rapid navigation attempts, external links, tab closing
+- Navigation request while saving
+  - model saving phase explicitly if needed
+  - define policy: block, queue, or disallow
+  - express policy as phases and transitions
+- Draft cleared before confirmation
+  - if drafts become empty, container can dispatch NAVIGATION_CANCELLED and proceed
