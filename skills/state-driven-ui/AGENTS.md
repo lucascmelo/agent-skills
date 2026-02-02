@@ -1,5 +1,6 @@
-name: state-driven-ui
-description: Agent guidance for applying the state-driven-ui creation skill.
+---
+name: react-state-driven-ui
+description: Agent guidance for applying the react-state-driven-ui creation skill.
 license: MIT
 metadata:
   version: 0.1.0

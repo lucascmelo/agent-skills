@@ -1,5 +1,5 @@
 ---
-name: state-driven-ui
+name: react-state-driven-ui
 description: Create React UI as a projection of explicit state transitions using reducer + events. Isolate side effects in React Query mutation callbacks. Keep components render-only and intent-only.
 license: MIT
 metadata:
@@ -7,15 +7,41 @@ metadata:
   version: 0.1.0
 ---
 
-# State-driven UI
+# React State-Driven UI
 
-## Scope
+Build predictable, testable React applications by treating UI as a pure projection of explicit state. This architectural pattern eliminates timing-dependent bugs, reduces cognitive overhead, and makes complex workflows manageable through clear state transitions and isolated side effects.
+
+## What this solves
+- **Race conditions**: Explicit state transitions prevent timing-dependent bugs
+- **Complex workflows**: Multi-step forms, async operations, and navigation blocking become predictable
+- **State synchronization**: Clear boundaries between server cache, client workflow, URL, and UI state
+- **Testing**: Pure reducers and selectors make behavior deterministic and testable
+- **Team collaboration**: Consistent patterns reduce onboarding time and prevent architectural drift
+
+## When to apply
+Use this skill when building features that require:
+
+- **Multi-step workflows**: Forms with validation, saving, confirmation dialogs
+- **Async operations**: API calls with loading/error states, retries, optimistic updates  
+- **Cross-component state**: Shared data that affects multiple parts of the UI
+- **Navigation integration**: Deep linking, browser back/forward, unsaved changes warnings
+- **Real-time updates**: WebSocket connections, live data synchronization
+- **Complex validation**: Field-level, form-level, and server-side validation coordination
+
+## What you get
+- **Predictable behavior**: UI always reflects current state, no surprises
+- **Easy debugging**: Clear state history and transition paths
+- **Better UX**: Optimistic updates, proper loading states, graceful error handling
+- **Maintainable code**: Separation of concerns, testable business logic
+- **Team consistency**: Shared vocabulary and patterns across features
+
+## Technical approach
 Use this skill to design and implement UI behavior as a pure projection of state.
 Model behavior with reducer + events.
 Isolate side effects in React Query mutation callbacks.
 Keep components render-only and intent-only.
 
-## Use this skill when
+## Ideal use cases
 - The feature has phases (idle, editing, saving, confirming, error).
 - The feature has async behavior (save, validate, retry, generate).
 - The feature has cross-component or cross-route behavior.
