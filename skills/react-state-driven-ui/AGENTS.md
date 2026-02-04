@@ -215,6 +215,7 @@ When refusing:
 
 ## 5. Reference index
 - rules/: modular rule sources
+- references/rules-summary.md: complete rule details
 - references/patterns.md
 - references/examples/draft-save-flow.md
 - references/examples/navigation-blocking-flow.md
