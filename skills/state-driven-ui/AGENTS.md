@@ -1,9 +1,6 @@
 ---
 name: react-state-driven-ui
 description: Agent guidance for applying the react-state-driven-ui creation skill.
-license: MIT
-metadata:
-  version: 0.1.0
 ---
 
 # State-Driven UI Architecture (React) - Agent Rules
@@ -126,104 +123,73 @@ Do not output component code before items 1 to 4 exist.
 ## 3. Rules (compiled)
 
 Read the corresponding files in rules/ for the source.
+See [references/rules-summary.md](references/rules-summary.md) for complete rule details.
 
-### Rule: UI is a projection of state
+### Construction and modeling rules
+
+#### Rule: UI is a projection of state
 Source: rules/flow-ui-projection.md
-
 - Do not allow render timing to affect behavior.
-- Do not trigger transitions from rendering.
-- Do not store meaning in component lifecycle.
 
-### Rule: Components emit intent only
+#### Rule: Components emit intent only  
 Source: rules/flow-intents-only.md
-
 - View components must not encode business rules.
-- View components must not orchestrate workflows or side effects.
-- View components may render selector output and emit intent callbacks.
 
-### Rule: Events drive all workflow state changes
+#### Rule: Events drive all workflow state changes
 Source: rules/reducer-events-drive-state.md
-
 - Every workflow state change must be caused by an event.
-- Reducer is the only place that updates workflow state.
-- Reducer is pure and deterministic.
 
-### Rule: Use one phase field for process meaning
+#### Rule: Use one phase field for process meaning
 Source: rules/reducer-single-phase.md
-
 - Represent process meaning with a single phase field.
-- Do not infer phase from multiple flags.
-- Make illegal states unrepresentable.
 
-### Rule: Replace boolean soup with explicit phases
+#### Rule: Replace boolean soup with explicit phases
 Source: rules/fsm-no-boolean-soup.md
-
 - Do not encode phase using combinations like isDirty && !isSaving.
-- Use explicit phases and explicit transitions.
-- Mark invalid transitions.
 
-### Rule: Do not run effects in view components
+### Effects and async rules
+
+#### Rule: Do not run effects in view components
 Source: rules/effects-no-effects-in-components.md
-
 - Side effects must run outside view components.
-- Do not coordinate workflows in useEffect.
-- Effects must emit outcome events, then reducer updates state.
 
-### Rule: React Query mutation callbacks emit outcome events
+#### Rule: React Query mutation callbacks emit outcome events
 Source: rules/query-mutation-callbacks.md
-
 - Use mutations for writes.
-- Emit outcome events from callbacks.
-- Do not mutate workflow state directly inside callbacks.
 
-### Rule: Guard against stale async outcomes
+#### Rule: Guard against stale async outcomes
 Source: rules/query-stale-response-guard.md
-
 - Use requestId to ignore out-of-order callbacks.
-- Abort where possible, still guard with requestId.
 
-### Rule: Navigation blocking requires explicit decision phase
+### Cross-cutting behavior rules
+
+#### Rule: Navigation blocking requires explicit decision phase
 Source: rules/routing-explicit-decision-state.md
-
 - Model confirmation as a phase.
-- Store pending destination in state.
-- Navigate only after explicit confirm event.
 
-### Rule: URL is a validated boundary input
+#### Rule: URL is a validated boundary input
 Source: rules/url-validated-boundary.md
-
 - Parse and validate URL state at the boundary.
-- Store validated output in workflow state.
-- Version schema when evolving.
 
-### Rule: Derived state is selectors, not stored fields
+### Correctness and maintainability rules
+
+#### Rule: Derived state is selectors, not stored fields
 Source: rules/derive-derived-state-as-selectors.md
-
 - Do not store derived flags.
-- Compute derived values from source state.
-- Memoize selectors, not component logic.
 
-### Rule: Stable identity is mandatory
+#### Rule: Stable identity is mandatory
 Source: rules/identity-stable-ids-and-keys.md
-
 - Use stable ids for keys.
-- Do not derive keys from mutable values.
-- Avoid remount cascades.
 
-### Rule: No lifecycle-dependent behavior
+#### Rule: No lifecycle-dependent behavior
 Source: rules/determinism-no-lifecycle-dependence.md
-
 - Re-render must not change behavior without an event.
-- Do not rely on mount/unmount to define meaning.
-- Time affects scheduling, not correctness.
 
-### Rule: Document reasoning at boundaries
+### Documentation and reasoning rules
+
+#### Rule: Document reasoning at boundaries
 Source: rules/docs-rationale-at-boundaries.md
-
 - Provide Design rationale section in agent output.
-- Add short boundary comments only where needed.
-- Do not comment every decision in code.
-- Keep comments under 3 to 6 lines each.
 
 ---
 

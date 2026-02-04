@@ -1,10 +1,6 @@
 ---
 name: react-state-driven-ui
-description: Create React UI as a projection of explicit state transitions using reducer + events. Isolate side effects in React Query mutation callbacks. Keep components render-only and intent-only.
-license: MIT
-metadata:
-  author: Lucas Cavalcanti
-  version: 0.1.0
+description: Create React UI as a projection of explicit state transitions using reducer + events. Use when building multi-step forms, async operations, cross-component state, navigation integration, real-time updates, or complex validation. Eliminates timing-dependent bugs through explicit state transitions and isolated side effects.
 ---
 
 # React State-Driven UI
